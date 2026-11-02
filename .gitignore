@@ -1,0 +1,6 @@
+node_modules/
+.env
+coverage/
+# local Claude Code settings and session notes — never published
+.claude/
+notes/
