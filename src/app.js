@@ -43,18 +43,33 @@ function readCredentials(body) {
   return { email: normalised, password };
 }
 
-function createLoginHandler({ users, bcryptCost, secret }) {
+// Sets Retry-After to the whole seconds left on the lock and returns the 429 to throw.
+function accountLocked(lockout, email, res) {
+  res.set('Retry-After', String(Math.max(1, Math.ceil(lockout.lockRemainingMs(email) / 1000))));
+  return new AppError(429, 'ACCOUNT_LOCKED', 'Too many failed sign-ins for this account. Try again later.');
+}
+
+// The IP limiter runs before this. A 400 names no account, so it never reaches the lockout.
+function createLoginHandler({ users, lockout, bcryptCost, secret }) {
   // An unknown email is still compared against a hash of the same cost, so it takes about as long as a real one.
   const dummyHash = bcrypt.hashSync(randomUUID(), bcryptCost);
 
   return async (req, res) => {
     const { email, password } = readCredentials(req.body);
+    if (lockout.isLocked(email)) throw accountLocked(lockout, email, res);
+
     const user = users.findByEmail(email);
     const matches = await bcrypt.compare(password, user?.passwordHash ?? dummyHash);
+    // A concurrent request may have started a lock while this one was comparing. The lock wins, even over a match.
+    if (lockout.isLocked(email)) throw accountLocked(lockout, email, res);
+
+    // Known and unknown emails are counted the same way, so the answers never reveal which emails have accounts.
     if (!user || !matches) {
+      if (lockout.recordFailure(email)) throw accountLocked(lockout, email, res);
       throw new AppError(401, 'INVALID_CREDENTIALS', 'That email and password do not match.');
     }
 
+    lockout.reset(email);
     res.cookie(SESSION_COOKIE, signSession(user, secret), SESSION_COOKIE_OPTIONS);
     res.json({ data: toPublicUser(user) });
   };
@@ -85,7 +100,7 @@ export function createApp(options = {}) {
   app.post(
     '/api/auth/login',
     createLoginLimiter({ limit: ipLimit, windowMs }),
-    createLoginHandler({ users: app.locals.users, bcryptCost, secret }),
+    createLoginHandler({ users: app.locals.users, lockout: app.locals.lockout, bcryptCost, secret }),
   );
   app.post('/api/auth/logout', logout);
   app.get('/api/me', requireAuth, (req, res) => res.json({ data: req.user }));

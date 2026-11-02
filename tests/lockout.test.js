@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_LOCKOUT_ENTRIES, createLockout } from '../src/lockout.js';
 import { CREDENTIALS, MINUTE, UNKNOWN_EMAIL, WRONG_PASSWORD, createTestApp, expectError, login } from './helpers.js';
 
 const LOCK_MS = 15 * MINUTE;
@@ -41,6 +43,18 @@ describe('lockout per account', () => {
     expect(res.headers['set-cookie']).toBeUndefined();
   });
 
+  it('sends Retry-After with the seconds left on the lock', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    await lock(admin.email);
+    const lockedAt = Date.now();
+
+    vi.setSystemTime(lockedAt + 10 * MINUTE);
+    const res = await login(app, admin.email, admin.password);
+
+    expectError(res, 429, 'ACCOUNT_LOCKED');
+    expect(res.headers['retry-after']).toBe(String((LOCK_MS - 10 * MINUTE) / 1000));
+  });
+
   it('lets the correct password in once lockMs has passed', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     await lock(admin.email);
@@ -58,6 +72,15 @@ describe('lockout per account', () => {
     expect((await login(app, admin.email, admin.password)).status).toBe(200);
 
     await failLogins(admin.email, 4);
+  });
+
+  // The test above passes even if nothing is ever counted. This one shows the count really restarted at 0.
+  it('locks on the 5th failure after a successful login, not before', async () => {
+    await failLogins(admin.email, 4);
+    expect((await login(app, admin.email, admin.password)).status).toBe(200);
+
+    await failLogins(admin.email, 4);
+    expectError(await login(app, admin.email, WRONG_PASSWORD), 429, 'ACCOUNT_LOCKED');
   });
 
   it('counts failures against the normalised email (trimmed, lower case)', async () => {
@@ -85,5 +108,19 @@ describe('lockout per account', () => {
 
     expectError(await login(app, manager.email, WRONG_PASSWORD), 401, 'INVALID_CREDENTIALS');
     expect((await login(app, manager.email, manager.password)).status).toBe(200);
+  });
+});
+
+describe('lockout store size', () => {
+  // Any sender can name any email, so without a cap the store would grow with every made-up address.
+  it('stays at or below its cap after failures for 20,000 distinct emails', () => {
+    const lockout = createLockout({ maxFailedLogins: 5, lockMs: LOCK_MS });
+
+    for (let n = 1; n <= 20_000; n += 1) {
+      lockout.recordFailure(`${randomUUID()}@example.com`);
+      expect(lockout.size()).toBeLessThanOrEqual(MAX_LOCKOUT_ENTRIES);
+    }
+
+    expect(lockout.size()).toBe(MAX_LOCKOUT_ENTRIES);
   });
 });
