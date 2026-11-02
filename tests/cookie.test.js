@@ -13,6 +13,7 @@ import {
   sessionCookie,
   userId,
 } from './helpers.js';
+import { SESSION_COOKIE } from '../src/session.js';
 
 const { admin, guest } = CREDENTIALS;
 
@@ -37,6 +38,17 @@ describe('POST /api/auth/login', () => {
     expect(attributes).toEqual(
       expect.arrayContaining(['HttpOnly', 'Secure', 'SameSite=Lax', 'Path=/', 'Max-Age=28800']),
     );
+  });
+
+  it('names the cookie with the __Host- prefix and gives it no Domain', async () => {
+    const res = await login(app, guest.email, guest.password);
+
+    expect(res.status).toBe(200);
+    expect(SESSION_COOKIE.startsWith('__Host-')).toBe(true);
+    const cookie = sessionCookie(res);
+    expect(cookie).toBeDefined();
+    expect(cookie.startsWith('__Host-')).toBe(true);
+    expect(cookie.toLowerCase()).not.toContain('domain=');
   });
 
   it('puts an HS256 JWT naming the user, valid for 8 hours, in the cookie', async () => {
@@ -79,5 +91,26 @@ describe('POST /api/auth/login', () => {
 
     expectError(res, 400, 'VALIDATION_ERROR');
     expect(res.headers['set-cookie']).toBeUndefined();
+  });
+});
+
+describe('POST /api/auth/logout', () => {
+  it('clears the session cookie with the attributes it was set with and an expiry in the past', async () => {
+    const app = createTestApp();
+    const signedIn = await login(app, guest.email, guest.password);
+    expect(signedIn.status).toBe(200);
+
+    const res = await request(app).post('/api/auth/logout').set('Cookie', sessionCookie(signedIn).split(';')[0]);
+
+    expect(res.status).toBe(200);
+    const cookie = sessionCookie(res);
+    expect(cookie).toBeDefined();
+    const [pair, ...rest] = cookie.split(';').map((part) => part.trim());
+    expect(pair).toBe(`${SESSION_COOKIE}=`);
+    expect(rest).toEqual(expect.arrayContaining(['Path=/', 'Secure', 'HttpOnly', 'SameSite=Lax']));
+    expect(cookie.toLowerCase()).not.toContain('domain=');
+    const expires = rest.find((attribute) => attribute.startsWith('Expires='));
+    expect(expires).toBeDefined();
+    expect(Date.parse(expires.slice('Expires='.length))).toBeLessThan(Date.now());
   });
 });
