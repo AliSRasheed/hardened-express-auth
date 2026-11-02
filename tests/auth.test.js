@@ -1,6 +1,8 @@
+import jwt from 'jsonwebtoken';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CREDENTIALS,
+  TEST_SECRET,
   base64url,
   cookieFor,
   createTestApp,
@@ -100,5 +102,19 @@ describe('JWT_SECRET', () => {
 
     vi.stubEnv('JWT_SECRET', 'a'.repeat(32));
     expect(() => createTestApp()).not.toThrow();
+  });
+
+  it('is read once by createApp: changing it afterwards does not change which tokens are accepted', async () => {
+    const app = createTestApp();
+    const sub = userId(app, 'admin');
+    const laterSecret = 'f'.repeat(64);
+
+    vi.stubEnv('JWT_SECRET', laterSecret);
+
+    expect((await get(app, '/api/me', cookieFor(signToken({ sub })))).status).toBe(200);
+    expectError(await get(app, '/api/me', cookieFor(signToken({ sub }, { secret: laterSecret }))), 401, 'NOT_SIGNED_IN');
+    // Login signs with the startup secret too, not the one now in the environment.
+    const token = (await signIn(app, 'admin')).split('=')[1];
+    expect(() => jwt.verify(token, TEST_SECRET, { algorithms: ['HS256'] })).not.toThrow();
   });
 });

@@ -4,7 +4,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { AppError, errorHandler, notFound } from './errors.js';
 import { createLockout } from './lockout.js';
-import { requireAuth } from './middleware/auth.js';
+import { createRequireAuth } from './middleware/auth.js';
 import { createLoginLimiter } from './middleware/rateLimit.js';
 import { requireRole } from './middleware/rbac.js';
 import { MANAGER_ROLES, ROLES } from './roles.js';
@@ -24,13 +24,13 @@ export const DEFAULTS = Object.freeze({
 
 const MIN_SECRET_LENGTH = 32;
 
-const notImplemented = (req, res, next) => next(new AppError(501, 'NOT_IMPLEMENTED', 'This route is not built yet.'));
-
-function assertSecret() {
+// The only place JWT_SECRET is read. createApp() keeps the result, so changing the environment later changes nothing.
+function readSecret() {
   const secret = process.env.JWT_SECRET;
   if (typeof secret !== 'string' || secret.length < MIN_SECRET_LENGTH) {
     throw new Error(`JWT_SECRET must be set and at least ${MIN_SECRET_LENGTH} characters long.`);
   }
+  return secret;
 }
 
 // Trims and lower-cases the email before checking it, so "  " counts as missing. The password is used as sent.
@@ -43,7 +43,7 @@ function readCredentials(body) {
   return { email: normalised, password };
 }
 
-function createLoginHandler({ users, bcryptCost }) {
+function createLoginHandler({ users, bcryptCost, secret }) {
   // An unknown email is still compared against a hash of the same cost, so it takes about as long as a real one.
   const dummyHash = bcrypt.hashSync(randomUUID(), bcryptCost);
 
@@ -55,7 +55,7 @@ function createLoginHandler({ users, bcryptCost }) {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'That email and password do not match.');
     }
 
-    res.cookie(SESSION_COOKIE, signSession(user), SESSION_COOKIE_OPTIONS);
+    res.cookie(SESSION_COOKIE, signSession(user, secret), SESSION_COOKIE_OPTIONS);
     res.json({ data: toPublicUser(user) });
   };
 }
@@ -69,7 +69,8 @@ function logout(req, res) {
 // A factory, not a singleton: each app has its own user store, IP limiter and lockout counts, so tests never share state.
 export function createApp(options = {}) {
   const { ipLimit, windowMs, maxFailedLogins, lockMs, bcryptCost = BCRYPT_COST } = { ...DEFAULTS, ...options };
-  assertSecret();
+  const secret = readSecret();
+  const requireAuth = createRequireAuth(secret);
 
   const app = express();
   app.disable('x-powered-by');
@@ -84,12 +85,14 @@ export function createApp(options = {}) {
   app.post(
     '/api/auth/login',
     createLoginLimiter({ limit: ipLimit, windowMs }),
-    createLoginHandler({ users: app.locals.users, bcryptCost }),
+    createLoginHandler({ users: app.locals.users, bcryptCost, secret }),
   );
   app.post('/api/auth/logout', logout);
   app.get('/api/me', requireAuth, (req, res) => res.json({ data: req.user }));
-  app.get('/api/reports', requireAuth, requireRole(...MANAGER_ROLES), notImplemented);
-  app.get('/api/admin/users', requireAuth, requireRole(ROLES.ADMIN), notImplemented);
+  app.get('/api/reports', requireAuth, requireRole(...MANAGER_ROLES), (req, res) => res.json({ data: { reports: [] } }));
+  app.get('/api/admin/users', requireAuth, requireRole(ROLES.ADMIN), (req, res) => {
+    res.json({ data: app.locals.users.list().map((user) => toPublicUser(user)) });
+  });
 
   app.use(notFound);
   app.use(errorHandler);

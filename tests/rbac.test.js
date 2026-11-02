@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { requireRole } from '../src/middleware/rbac.js';
 import { createTestApp, expectError, get, signIn, userId } from './helpers.js';
 
 const ADMIN_ONLY = '/api/admin/users';
@@ -22,6 +23,16 @@ describe('role-based access', () => {
       const cookie = await signIn(app, 'admin');
 
       expect((await get(app, ADMIN_ONLY, cookie)).status).toBe(200);
+    });
+
+    it('lists every user with public fields only, never a password hash', async () => {
+      const res = await get(app, ADMIN_ONLY, await signIn(app, 'admin'));
+
+      expect(res.body.data).toHaveLength(app.locals.users.list().length);
+      for (const user of res.body.data) {
+        expect(Object.keys(user).sort()).toEqual(['email', 'id', 'name', 'role']);
+      }
+      expect(JSON.stringify(res.body)).not.toContain('$2');
     });
   });
 
@@ -62,5 +73,12 @@ describe('role-based access', () => {
     app.locals.users.update(userId(app, 'guest'), { role: 'admin' });
 
     expect((await get(app, ADMIN_ONLY, cookie)).status).toBe(200);
+  });
+});
+
+describe('requireRole', () => {
+  // Fails closed: a route set up without roles must not start, rather than let everyone through.
+  it('throws at setup when called with no roles', () => {
+    expect(() => requireRole()).toThrow();
   });
 });
