@@ -67,6 +67,28 @@ describe('lockout per account', () => {
     expect((await login(app, admin.email, admin.password)).status).toBe(200);
   });
 
+  // Failures expire lockMs after the most recent one, so a slow trickle of guesses never adds up to a lock.
+  it('forgets failures older than lockMs', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    await failLogins(admin.email, 4);
+
+    vi.setSystemTime(Date.now() + LOCK_MS + 1000);
+    await failLogins(admin.email, 4);
+
+    // The count restarted at 0 rather than stopping: the 5th failure of the new run still locks.
+    expectError(await login(app, admin.email, WRONG_PASSWORD), 429, 'ACCOUNT_LOCKED');
+  });
+
+  // A 400 names no account, so it must not count toward that email's lockout.
+  it('does not count a 400 VALIDATION_ERROR toward the lockout for that email', async () => {
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      expectError(await login(app, admin.email, ''), 400, 'VALIDATION_ERROR');
+    }
+
+    await failLogins(admin.email, 4);
+    expectError(await login(app, admin.email, WRONG_PASSWORD), 429, 'ACCOUNT_LOCKED');
+  });
+
   it('starts the count again after a successful login', async () => {
     await failLogins(admin.email, 4);
     expect((await login(app, admin.email, admin.password)).status).toBe(200);

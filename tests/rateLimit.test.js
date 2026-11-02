@@ -38,6 +38,17 @@ describe('login rate limit per IP', () => {
     expect(res.headers['x-ratelimit-limit']).toBeUndefined();
   });
 
+  // The limiter runs before validation, so a malformed request still uses up one of the IP's attempts.
+  it('counts a 400 VALIDATION_ERROR toward the IP limit', async () => {
+    const app = limitedApp();
+
+    for (let n = 1; n <= 3; n += 1) {
+      expectError(await login(app, CREDENTIALS.admin.email, ''), 400, 'VALIDATION_ERROR');
+    }
+
+    expectError(await correctLogin(app), 429, 'TOO_MANY_REQUESTS');
+  });
+
   it('keeps a separate count for each app', async () => {
     const first = limitedApp();
     await spray(first, 3);
