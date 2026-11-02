@@ -1,4 +1,6 @@
-# express-jwt-cookie-auth
+# hardened-express-auth
+
+![CI](https://github.com/AliSRasheed/hardened-express-auth/actions/workflows/ci.yml/badge.svg)
 
 A small Express 5 service that shows three authentication controls done carefully, each backed by tests:
 
@@ -12,7 +14,7 @@ It was extracted and rebuilt from the auth layer of a larger hotel-management pr
 
 ## Quick start
 
-Requires **Node.js 20.6+** (the scripts use `--env-file`). The test suite needs **Node.js 22.12+** (Vitest 5).
+Requires **Node.js 22.12+**.
 
 ```bash
 npm install
@@ -45,7 +47,7 @@ The app refuses to start if `JWT_SECRET` is missing or shorter than 32 character
 |---|---|---|---|
 | GET | `/health` | public | `200 { data: { status: "ok" } }` |
 | POST | `/api/auth/login` | public, rate-limited | `200 { data: user }` + sets `__Host-session` |
-| POST | `/api/auth/logout` | public | `200`, clears the cookie |
+| POST | `/api/auth/logout` | public | `200 { data: { signedOut: true } }`, clears the cookie |
 | GET | `/api/me` | any signed-in user | `200 { data: user }` |
 | GET | `/api/reports` | `manager`, `admin` | `200 { data: { reports: [] } }` |
 | GET | `/api/admin/users` | `admin` | `200 { data: [users] }` (public fields only) |
@@ -58,8 +60,11 @@ Every error has the same shape, `{ "error": { "code": "...", "message": "..." } 
 | 401 | `INVALID_CREDENTIALS` | Wrong password **or** unknown email. The two responses are identical. |
 | 401 | `NOT_SIGNED_IN` | No cookie, or a token that is invalid, expired or forged |
 | 403 | `FORBIDDEN` | Signed in, but the role isn't allowed on this route |
+| 404 | `NOT_FOUND` | No route matches the method and path |
+| 413 | `PAYLOAD_TOO_LARGE` | JSON body over 10 kb |
 | 429 | `TOO_MANY_REQUESTS` | Per-IP login limit hit (sends `RateLimit` and `Retry-After` headers) |
 | 429 | `ACCOUNT_LOCKED` | Per-account lockout active (sends `Retry-After`) |
+| 500 | `INTERNAL_ERROR` | Any unexpected error. The details go to `console.error`, never to the client. |
 
 ## How a request flows
 

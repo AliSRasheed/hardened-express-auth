@@ -1,11 +1,12 @@
 {
-  "name": "express-jwt-cookie-auth",
+  "name": "hardened-express-auth",
   "version": "0.1.0",
-  "description": "A JWT in an HttpOnly + Secure cookie, login rate limiting with per-account lockout, and route-level RBAC for Express 5.",
+  "description": "Hardened Express auth demo: JWT in a __Host- cookie, fail-closed RBAC, per-IP rate limit and enumeration-safe account lockout.",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=20.6"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "node --watch --env-file=.env src/server.js",
