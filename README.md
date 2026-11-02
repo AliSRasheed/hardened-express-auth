@@ -31,7 +31,7 @@ PORT=3000
 ```
 
 ```bash
-npm test        # run the full test suite (51 tests)
+npm test        # run the full test suite (54 tests)
 npm run dev     # start on http://localhost:3000 with auto-reload
 ```
 
@@ -104,9 +104,9 @@ GET /api/admin/users
 | The token is sent over plain HTTP | `Secure` + `__Host-` prefix | ✅ |
 | A forged or tampered token, `alg: none`, or an algorithm swap | `jwt.verify` with `algorithms: ['HS256']`, secret bound at startup | ✅ tampered, expired, other-secret, alg-none, HS512 |
 | Privilege escalation by editing token claims | Role reloaded from the store; the token holds only `sub` | ✅ role change applies on the next request |
-| A misconfigured route left open | `requireRole` fails closed at setup | ⚠️ only the no-roles case; an `undefined` role isn't tested |
+| A misconfigured route left open | `requireRole` fails closed at setup | ✅ no roles, an `undefined` role, and an `undefined` among valid roles |
 | Online password guessing against one account | Lockout: 5 failures → 15 min | ✅ |
-| Password spraying across many accounts | Per-IP limit: 20 attempts / 15 min | ⚠️ the limiter is tested with a limit of 3; the 20 / 15 min defaults aren't |
+| Password spraying across many accounts | Per-IP limit: 20 attempts / 15 min | ✅ default limit; ⚠️ window not tested |
 | Account enumeration through responses | Identical 401 bodies; unknown emails lock exactly like real ones | ✅ |
 | Account enumeration through timing | bcrypt compare against a dummy hash for unknown emails | ⚠️ not timing-tested |
 | Memory exhaustion through millions of fake emails | Lockout entries expire; store capped at 10,000 entries | ✅ cap test |

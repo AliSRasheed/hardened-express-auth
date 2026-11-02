@@ -38,6 +38,17 @@ describe('login rate limit per IP', () => {
     expect(res.headers['x-ratelimit-limit']).toBeUndefined();
   });
 
+  // No ipLimit passed, so this runs the app's default of 20 per window.
+  it('with the default limit, lets 20 failed logins through, then answers the 21st with 429 TOO_MANY_REQUESTS', async () => {
+    const app = createTestApp({ maxFailedLogins: 100 });
+
+    await spray(app, 20);
+
+    const twentyFirst = await correctLogin(app);
+    expectError(twentyFirst, 429, 'TOO_MANY_REQUESTS');
+    expect(twentyFirst.headers['set-cookie']).toBeUndefined();
+  });
+
   // The limiter runs before validation, so a malformed request still uses up one of the IP's attempts.
   it('counts a 400 VALIDATION_ERROR toward the IP limit', async () => {
     const app = limitedApp();

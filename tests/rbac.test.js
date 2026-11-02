@@ -81,4 +81,13 @@ describe('requireRole', () => {
   it('throws at setup when called with no roles', () => {
     expect(() => requireRole()).toThrow();
   });
+
+  // A misspelt constant such as ROLES.ADMNI is undefined. It must stop the app, not build a check.
+  it('throws at setup when its only role is undefined', () => {
+    expect(() => requireRole(undefined)).toThrow();
+  });
+
+  it('throws at setup when any one of its roles is undefined', () => {
+    expect(() => requireRole('admin', undefined)).toThrow();
+  });
 });
